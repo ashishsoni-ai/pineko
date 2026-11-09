@@ -1,5 +1,6 @@
 """CLI entry point to convolution."""
 
+import contextlib
 import pathlib
 
 import eko
@@ -74,27 +75,25 @@ def subcommand(
     """
     grid = pineappl.grid.Grid.read(grid_path)
     grid.optimize()
-    n_ekos = len(op_paths)
     tcard = theory_card.load(theoryid)
-    with eko.EKO.edit(pathlib.Path(op_paths[0])) as first_operator:
-        operators = [first_operator]
-        path_operators = f"[+] {op_paths[0]}\n"
-        # If there are more than ONE operator, then account for all of them.
-        if len(operators) > 1:
-            for op_idx in range(1, n_ekos):
-                operators.append(eko.EKO.edit(op_paths[op_idx]))
-                path_operators += f"[+] {op_paths[op_idx]}\n"
 
-        rich.print(
-            rich.panel.Panel.fit("Computing ...", style="magenta", box=rich.box.SQUARE),
-            f"   {grid_path}\n",
-            f"{path_operators}",
-            f"= {fktable}\n",
-            f"with max_as={max_as}, max_al={max_al}, xir={xir}, xif={xif}, xia={xia}",
-            f"min_as: {min_as}" if min_as is not None else "",
-        )
+    path_operators = "".join(f"[+] {p}\n" for p in op_paths)
+    rich.print(
+        rich.panel.Panel.fit("Computing ...", style="magenta", box=rich.box.SQUARE),
+        f"   {grid_path}\n",
+        f"{path_operators}",
+        f"= {fktable}\n",
+        f"with max_as={max_as}, max_al={max_al}, xir={xir}, xif={xif}, xia={xia}",
+        f"min_as: {min_as}" if min_as is not None else "",
+    )
 
-        pdfs = pdfs.split(",") if pdfs is not None else pdfs
+    pdfs = pdfs.split(",") if pdfs is not None else pdfs
+
+    with contextlib.ExitStack() as stack:
+        operators = [
+            stack.enter_context(eko.EKO.read(pathlib.Path(p))) for p in op_paths
+        ]
+
         _grid, _fk, comp = evolve.evolve_grid(
             grid,
             operators,
@@ -111,9 +110,5 @@ def subcommand(
             grid_path=pathlib.Path(grid_path),
         )
 
-        if len(operators) > 1:
-            for op in operators[1:]:
-                op.close()
-
-        if comp is not None:
-            print(comp.to_string())
+    if comp is not None:
+        print(comp.to_string())
